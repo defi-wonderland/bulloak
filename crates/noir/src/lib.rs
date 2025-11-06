@@ -24,6 +24,6 @@ pub use config::Config;
 /// # Errors
 ///
 /// Returns an error if code generation fails.
-pub fn scaffold(ast: &Ast, cfg: &Config) -> Result<String> {
-    scaffold::generate(ast, cfg)
+pub fn scaffold(forest: &Vec<Ast>, cfg: &Config) -> Result<String> {
+    scaffold::generate(forest, cfg)
 }

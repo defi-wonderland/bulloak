@@ -129,9 +129,9 @@ impl Scaffold {
                 (emitted, output_file)
             }
             Backend::Noir => {
-                let ast = bulloak_syntax::parse_one(&text)?;
+                let forest = bulloak_syntax::parse(&text)?;
                 let noir_cfg: bulloak_noir::Config = cfg.into();
-                let emitted = bulloak_noir::scaffold(&ast, &noir_cfg)?;
+                let emitted = bulloak_noir::scaffold(&forest, &noir_cfg)?;
                 let output_file = Self::build_output_path(file, "_test.nr")?;
                 (emitted, output_file)
             }

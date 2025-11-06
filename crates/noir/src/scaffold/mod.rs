@@ -12,6 +12,6 @@ use crate::Config;
 /// # Errors
 ///
 /// Returns an error if code generation fails.
-pub fn generate(ast: &Ast, cfg: &Config) -> Result<String> {
-    generator::generate(ast, cfg)
+pub fn generate(forest: &Vec<Ast>, cfg: &Config) -> Result<String> {
+    generator::generate(forest, cfg)
 }
