@@ -1,0 +1,5 @@
+hash_pair
+├── When first arg is smaller than second arg
+│   └── It should match the result of hash(a, b).
+└── When first arg is bigger than second arg
+    └── It should match the result of hash(b, a).

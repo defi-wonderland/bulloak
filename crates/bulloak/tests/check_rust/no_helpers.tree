@@ -1,0 +1,3 @@
+simple_function
+├── It should return true for valid input.
+└── It should return false for invalid input.

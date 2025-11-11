@@ -1,7 +1,30 @@
 //! `bulloak`'s CLI config.
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use figment::{providers::Serialized, Figment};
 use serde::{Deserialize, Serialize};
+
+/// The target backend/language for code generation.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    ValueEnum,
+    Serialize,
+    Deserialize,
+)]
+#[serde(rename_all = "lowercase")]
+pub enum Backend {
+    /// Solidity (Foundry) backend.
+    #[default]
+    Solidity,
+    /// Rust backend.
+    Rust,
+    /// Noir backend.
+    Noir,
+}
 
 /// `bulloak`'s configuration.
 #[derive(Parser, Debug, Clone, Default, Serialize, Deserialize)]
@@ -45,6 +68,31 @@ impl From<&Cli> for bulloak_foundry::config::Config {
                 skip_modifiers: cmd.skip_modifiers,
                 format_descriptions: cmd.format_descriptions,
                 ..Self::default()
+            },
+        }
+    }
+}
+
+impl From<&Cli> for bulloak_noir::Config {
+    fn from(cli: &Cli) -> Self {
+        match &cli.command {
+            Commands::Scaffold(cmd) => Self {
+                files: cmd
+                    .files
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+                skip_helpers: cmd.skip_modifiers,
+                format_descriptions: cmd.format_descriptions,
+            },
+            Commands::Check(cmd) => Self {
+                files: cmd
+                    .files
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect(),
+                skip_helpers: cmd.skip_modifiers,
+                format_descriptions: cmd.format_descriptions,
             },
         }
     }

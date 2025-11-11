@@ -1,5 +1,5 @@
 [package]
-name = "bulloak"
+name = "bulloak-rust"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -14,34 +14,17 @@ categories.workspace = true
 
 [dependencies]
 bulloak-syntax.workspace = true
-bulloak-foundry.workspace = true
-bulloak-rust.workspace = true
-bulloak-noir.workspace = true
 
 anyhow.workspace = true
-clap.workspace = true
-figment.workspace = true
-forge-fmt.workspace = true
-owo-colors.workspace = true
-serde.workspace = true
-glob = "0.3.2"
+thiserror.workspace = true
+syn = { version = "2.0", features = ["full", "parsing", "visit"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+prettyplease = "0.2"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
-criterion.workspace = true
-assert_cmd = "2.0"
-
-[[bench]]
-name = "emit"
-harness = false
-
-[[bench]]
-name = "emit_rust"
-harness = false
-
-[[bench]]
-name = "emit_noir"
-harness = false
+indoc = "2.0.5"
 
 [lints]
 workspace = true
