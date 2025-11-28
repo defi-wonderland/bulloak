@@ -2,7 +2,10 @@
 //!
 //! This module defines the core trait that all bulloak backends must implement,
 //! along with their concrete implementations
+use bulloak_foundry::check::context::Context;
+use owo_colors::OwoColorize;
 use regex::Regex;
+use std::fmt;
 use std::path::PathBuf;
 use thiserror::Error;
 
@@ -10,7 +13,15 @@ use anyhow::Result;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
-use crate::cli::Cli;
+use crate::cli::{Cli, Commands};
+
+pub struct Violation {
+    pub is_fixable: bool,
+    message: String,
+    tree_file: PathBuf,
+    test_file: Option<PathBuf>,
+    line: Option<usize>,
+}
 
 /// Trait for backends that generate test files from `.tree` specifications.
 ///
@@ -20,6 +31,15 @@ pub trait Backend: Send + Sync {
     /// Scaffolds test code from a tree specification.
     /// Must output it already formatted, as it won't be processed further
     fn scaffold(&self, text: &str) -> Result<String>;
+
+    /// Given a treefile, checks the testfile has the correct structure
+    /// May fix them, depending on self.config, in which case it'll return
+    /// the updated source code.
+    /// Returns an array of the Violations that were not fixed
+    fn check(
+        &self,
+        tree_file: &PathBuf,
+    ) -> Result<(Option<(usize, String)>, Vec<Violation>)>;
 
     /// Returns the output test file path for a given tree file path.
     fn test_filename(&self, tree_file: &PathBuf) -> Result<PathBuf>;
@@ -45,6 +65,7 @@ enum BackendError {
 /// Solidity/Foundry backend with baked-in config.
 pub(crate) struct SolidityBackend {
     config: bulloak_foundry::config::Config,
+    fix: bool,
 }
 
 /// Noir/Aztec backend with baked-in config.
@@ -56,7 +77,14 @@ impl BackendKind {
     /// Creates a boxed backend instance with config derived from CLI.
     pub fn get(&self, cli: &Cli) -> Box<dyn Backend> {
         match self {
-            Self::Solidity => Box::new(SolidityBackend { config: cli.into() }),
+            Self::Solidity => Box::new(SolidityBackend {
+                config: cli.into(),
+                fix: if let Commands::Check(c) = &cli.command {
+                    c.fix
+                } else {
+                    false
+                },
+            }),
             Self::Noir => Box::new(NoirBackend { config: cli.into() }),
         }
     }
@@ -78,6 +106,19 @@ impl Backend for SolidityBackend {
         Ok(forge_fmt::fmt(&emitted).unwrap_or(emitted))
     }
 
+    fn check(
+        &self,
+        tree_file: &PathBuf,
+    ) -> Result<(Option<(usize, String)>, Vec<Violation>)> {
+        let mut violations = Vec::new();
+        let ctx = Context::new(tree_file.clone(), &self.config);
+        let _ = ctx.map_err(|violation| violations.push(violation));
+        if self.fix {
+            todo!();
+        }
+        Ok((None, violations.iter().map(|x| x.into()).collect()))
+    }
+
     fn test_filename(&self, tree_file: &PathBuf) -> Result<PathBuf> {
         validate_extension(tree_file)?;
         Ok(tree_file.with_extension("t.sol"))
@@ -87,6 +128,13 @@ impl Backend for SolidityBackend {
 impl Backend for NoirBackend {
     fn scaffold(&self, text: &str) -> Result<String> {
         bulloak_noir::scaffold(&text, &self.config)
+    }
+
+    fn check(
+        &self,
+        _tree_file: &PathBuf,
+    ) -> Result<(Option<(usize, String)>, Vec<Violation>)> {
+        todo!();
     }
 
     fn test_filename(&self, tree_file: &PathBuf) -> Result<PathBuf> {
@@ -107,6 +155,58 @@ impl Backend for NoirBackend {
     }
 }
 
+impl From<&bulloak_foundry::Violation> for Violation {
+    fn from(f: &bulloak_foundry::Violation) -> Violation {
+        let mut message = format!("{}", f.kind);
+        if let Some(help_text) = f.kind.help() {
+            message =
+                format!("{}\n     {} help: {}", message, "=".blue(), help_text);
+        }
+        Violation {
+            message,
+            tree_file: PathBuf::from(f.location.file()),
+            // TODO: populate test/tree file based on which one is referred to
+            test_file: None,
+            line: if let bulloak_foundry::check::location::Location::Code(
+                _,
+                line,
+            ) = f.location
+            {
+                Some(line)
+            } else {
+                None
+            },
+            is_fixable: f.is_fixable(),
+        }
+    }
+}
+
+impl fmt::Display for Violation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}: {}", "warn".yellow(), self.message)?;
+        if self.is_fixable {
+            let tree_file = self.tree_file.display();
+            write!(f, "     {} fix: run ", "+".blue())?;
+            writeln!(f, "`bulloak check --fix {tree_file}`")?;
+        }
+        if let Some(test_file) = self.test_file.clone() {
+            if let Some(line) = self.line {
+                writeln!(
+                    f,
+                    "   {} {}:{}",
+                    "-->".blue(),
+                    test_file.display(),
+                    line
+                )?;
+            } else {
+                writeln!(f, "   {} {}", "-->".blue(), test_file.display())?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,6 +217,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("MyContract.tree");
@@ -133,6 +234,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("src/contracts/MyContract.tree");
@@ -149,6 +251,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("My.Complex.Contract.tree");
@@ -164,6 +267,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("MyContract_test.tree");
@@ -180,6 +284,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("/home/user/project/Contract.tree");
@@ -198,6 +303,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("tests/specs/nested/MyTest.tree");
@@ -213,6 +319,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("MyContract");
@@ -228,6 +335,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("MyContract.txt");
@@ -243,6 +351,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("");
@@ -258,6 +367,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("src/");
@@ -273,6 +383,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("🐻.tree");
@@ -288,6 +399,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from("My Contract.tree");
@@ -303,6 +415,7 @@ mod tests {
             NoirBackend { config: bulloak_noir::Config::default() };
         let foundry_backend = SolidityBackend {
             config: bulloak_foundry::config::Config::default(),
+            fix: false,
         };
 
         let input = PathBuf::from(".tree");

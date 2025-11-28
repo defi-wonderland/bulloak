@@ -5,20 +5,12 @@
 
 use std::{fs, path::PathBuf};
 
-use bulloak_foundry::{
-    check::{
-        context::{fix_order, Context},
-        rules::{self, Checker},
-    },
-    sol::find_contract,
-    violation::{Violation, ViolationKind},
-};
 use bulloak_syntax::utils::pluralize;
 use clap::Parser;
 use owo_colors::OwoColorize;
 use serde::{Deserialize, Serialize};
 
-use crate::{cli::Cli, glob::expand_glob};
+use crate::{backend::BackendKind, cli::Cli, glob::expand_glob};
 
 /// Check that the tests match the spec.
 #[doc(hidden)]
@@ -41,6 +33,9 @@ pub struct Check {
     /// Whether to capitalize and punctuate branch descriptions.
     #[arg(long = "format-descriptions", default_value_t = false)]
     pub format_descriptions: bool,
+    /// The target language for checking.
+    #[arg(short = 'l', long = "lang", value_enum, default_value_t = BackendKind::Solidity)]
+    pub backend_kind: BackendKind,
 }
 
 impl Default for Check {
@@ -67,87 +62,81 @@ impl Check {
             }
         }
 
-        let mut violations = Vec::new();
-        let ctxs: Vec<Context> = specs
-            .iter()
-            .filter_map(|tree_path| {
-                Context::new(tree_path.clone(), &cfg.into())
-                    .map_err(|violation| violations.push(violation))
-                    .ok()
-            })
-            .collect();
+        let backend = self.backend_kind.get(cfg);
 
-        if !self.fix {
-            for ctx in ctxs {
-                violations.append(&mut rules::StructuralMatcher::check(&ctx));
-            }
+        let mut non_fixed_violations = Vec::new();
+        let mut total_fixed = 0;
 
-            return exit(&violations);
-        }
+        for tree_path in specs {
+            let check_result = backend.check(&tree_path);
 
-        let mut fixed_count = 0;
-        for mut ctx in ctxs {
-            let violations = rules::StructuralMatcher::check(&ctx);
-            let fixable_count =
-                violations.iter().filter(|v| v.is_fixable()).count();
-
-            // Process violations that don't affect function order first.
-            let violations = violations.iter().filter(|v| {
-                !matches!(v.kind, ViolationKind::FunctionOrderMismatch(_, _, _))
-            });
-            for violation in violations {
-                ctx = match violation.kind.fix(ctx.clone()) {
-                    Ok(ctx) => ctx,
-                    Err(e) => {
-                        eprintln!(
-                            "unable to fix \"{}\" due to:\n{}",
-                            violation.kind, e
-                        );
-                        continue;
-                    }
-                };
-            }
-
-            // Second pass fixing order violations.
-            let violations = rules::StructuralMatcher::check(&ctx);
-            let violations: Vec<Violation> = violations
-                .into_iter()
-                .filter(|v| {
-                    matches!(
-                        v.kind,
-                        ViolationKind::FunctionOrderMismatch(_, _, _)
-                    )
-                })
-                .collect();
-            if !violations.is_empty() {
-                if let Some(contract_sol) = find_contract(&ctx.pt) {
-                    if let Some(contract_hir) = ctx.hir.clone().find_contract()
-                    {
-                        ctx = fix_order(
-                            &violations,
-                            &contract_sol,
-                            contract_hir,
-                            ctx,
-                        );
-                    }
+            let (fixed, violations) = match check_result {
+                Ok((f, v)) => (f, v),
+                Err(e) => {
+                    eprintln!(
+                        "{}: check failed for {}: {}",
+                        "warn".yellow(),
+                        tree_path.display(),
+                        e
+                    );
+                    continue;
                 }
+            };
+
+            // if backend didn't choose to fix, then this'll be None
+            if let Some((fixed_count, fixed_text)) = fixed {
+                self.write(
+                    &fixed_text,
+                    backend
+                        .test_filename(&tree_path)
+                        .expect("shouldn't have been able to fix the testfile"),
+                );
+                total_fixed += fixed_count;
             }
 
-            let sol = ctx.sol.clone();
-            let formatted =
-                ctx.fmt().expect("should format the emitted solidity code");
-            self.write(&formatted, sol);
+            for violation in &violations {
+                eprintln!("{}", violation);
+            }
 
-            fixed_count += fixable_count;
+            non_fixed_violations.extend(violations);
         }
 
-        let issue_literal = pluralize(fixed_count, "issue", "issues");
-        println!(
-            "\n{}: {} {} fixed.",
-            "success".bold().green(),
-            fixed_count,
-            issue_literal
-        );
+        if total_fixed > 0 {
+            let issue_literal =
+                if total_fixed == 1 { "issue" } else { "issues" };
+            println!(
+                "\n{}: {} {} fixed.",
+                "success".bold().green(),
+                total_fixed,
+                issue_literal
+            );
+        } else if non_fixed_violations.is_empty() {
+            println!(
+                "{}",
+                "All checks completed successfully! No issues found.".green()
+            );
+        } else {
+            let check_literal =
+                pluralize(non_fixed_violations.len(), "check", "checks");
+            eprint!(
+                "{}: {} {} failed",
+                "warn".bold().yellow(),
+                non_fixed_violations.len(),
+                check_literal
+            );
+            let fixable_count =
+                non_fixed_violations.iter().filter(|v| v.is_fixable).count();
+            if fixable_count > 0 {
+                let fix_literal = pluralize(fixable_count, "fix", "fixes");
+                eprintln!(
+                " (run `bulloak check --fix <.tree files>` to apply {fixable_count} {fix_literal})"
+            );
+            } else {
+                eprintln!();
+            }
+
+            std::process::exit(1);
+        }
     }
 
     /// Handles writing the output of the `check` command.
@@ -162,38 +151,5 @@ impl Check {
         } else if let Err(e) = fs::write(sol, output) {
             eprintln!("{}: {e}", "warn".yellow());
         }
-    }
-}
-
-fn exit(violations: &[Violation]) {
-    if violations.is_empty() {
-        println!(
-            "{}",
-            "All checks completed successfully! No issues found.".green()
-        );
-    } else {
-        for violation in violations {
-            eprintln!("{violation}");
-        }
-
-        let check_literal = pluralize(violations.len(), "check", "checks");
-        eprint!(
-            "{}: {} {} failed",
-            "warn".bold().yellow(),
-            violations.len(),
-            check_literal
-        );
-        let fixable_count =
-            violations.iter().filter(|v| v.is_fixable()).count();
-        if fixable_count > 0 {
-            let fix_literal = pluralize(fixable_count, "fix", "fixes");
-            eprintln!(
-                " (run `bulloak check --fix <.tree files>` to apply {fixable_count} {fix_literal})"
-            );
-        } else {
-            eprintln!();
-        }
-
-        std::process::exit(1);
     }
 }
