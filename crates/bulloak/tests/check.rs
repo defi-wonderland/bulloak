@@ -29,6 +29,15 @@ warn: incorrect position for function "test_WhenThereIsReentrancy""#
     for (expected, actual) in expected.zip(actual) {
         assert_eq!(expected, actual);
     }
+
+    // TODO: report the four ordering errors (next PR)
+    // TODO: when Big Backend Refactor, ensure error message format is consistent
+    let output = cmd(&binary_path, "check", &tree_path, &["-l",  "noir"]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    dbg!(&stderr);
+    assert!(stderr.contains("Missing helper function 'given_the_stream_is_cold'"));
+    assert!(stderr.contains("Missing helper function 'when_the_sender_does_not_revert'"));
+    assert!(stderr.contains("crates/bulloak/tests/check/invalid_sol_structure_test.nr"));
 }
 
 #[test]
@@ -145,9 +154,8 @@ fn checks_empty_contract() {
 
     assert!(stderr
         .contains(r#"unconstrained fn "test_should_never_revert" is missing"#));
-    assert!(stderr.contains(
-        r#"unconstrained fn "test_should_never_revert" is missing"#
-    ));
+    assert!(stderr
+        .contains(r#"unconstrained fn "test_should_never_revert" is missing"#));
 }
 
 #[test]
