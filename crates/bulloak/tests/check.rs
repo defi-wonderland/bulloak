@@ -67,6 +67,17 @@ fn checks_modifiers_skipped() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
 
+    // TODO: modifier invocation is present but modifier is not defined, we are currently not
+    // catching this, and leaving it for solc to find 
+    assert_eq!("", stderr);
+    assert!(
+        stdout.contains("All checks completed successfully! No issues found.")
+    );
+
+    let output = cmd(&binary_path, "check", &tree_path, &["-m", "-l",  "noir"]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
     assert_eq!("", stderr);
     assert!(
         stdout.contains("All checks completed successfully! No issues found.")
