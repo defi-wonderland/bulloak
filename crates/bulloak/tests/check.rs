@@ -74,7 +74,7 @@ fn checks_modifiers_skipped() {
         stdout.contains("All checks completed successfully! No issues found.")
     );
 
-    let output = cmd(&binary_path, "check", &tree_path, &["-m", "-l",  "noir"]);
+    let output = cmd(&binary_path, "check", &tree_path, &["-m", "-l", "noir"]);
     let stderr = String::from_utf8(output.stderr).unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
 
@@ -95,6 +95,13 @@ fn checks_modifiers_skipped_issue_81() {
 
     assert!(stderr.contains(
         "function \"test_WhenLastUpdatedTimeInPast\" is missing in .sol"
+    ));
+
+    let output = cmd(&binary_path, "check", &tree_path, &["-m", "-l", "noir"]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(stderr.contains(
+        "unconstrained fn \"test_when_last_updated_time_in_past\" is missing"
     ));
 }
 
