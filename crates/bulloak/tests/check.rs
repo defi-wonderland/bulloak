@@ -29,6 +29,15 @@ warn: incorrect position for function "test_WhenThereIsReentrancy""#
     for (expected, actual) in expected.zip(actual) {
         assert_eq!(expected, actual);
     }
+
+    // TODO: report the four ordering errors (next PR)
+    // TODO: when Big Backend Refactor, ensure error message format is consistent
+    let output = cmd(&binary_path, "check", &tree_path, &["-l",  "noir"]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    dbg!(&stderr);
+    assert!(stderr.contains("Missing helper function 'given_the_stream_is_cold'"));
+    assert!(stderr.contains("Missing helper function 'when_the_sender_does_not_revert'"));
+    assert!(stderr.contains("crates/bulloak/tests/check/invalid_sol_structure_test.nr"));
 }
 
 #[test]
@@ -67,6 +76,17 @@ fn checks_modifiers_skipped() {
     let stderr = String::from_utf8(output.stderr).unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
 
+    // TODO: modifier invocation is present but modifier is not defined, we are currently not
+    // catching this, and leaving it for solc to find 
+    assert_eq!("", stderr);
+    assert!(
+        stdout.contains("All checks completed successfully! No issues found.")
+    );
+
+    let output = cmd(&binary_path, "check", &tree_path, &["-m", "-l", "noir"]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
     assert_eq!("", stderr);
     assert!(
         stdout.contains("All checks completed successfully! No issues found.")
@@ -84,6 +104,13 @@ fn checks_modifiers_skipped_issue_81() {
 
     assert!(stderr.contains(
         "function \"test_WhenLastUpdatedTimeInPast\" is missing in .sol"
+    ));
+
+    let output = cmd(&binary_path, "check", &tree_path, &["-m", "-l", "noir"]);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(stderr.contains(
+        "unconstrained fn \"test_when_last_updated_time_in_past\" is missing"
     ));
 }
 
@@ -127,9 +154,8 @@ fn checks_empty_contract() {
 
     assert!(stderr
         .contains(r#"unconstrained fn "test_should_never_revert" is missing"#));
-    assert!(stderr.contains(
-        r#"unconstrained fn "test_should_never_revert" is missing"#
-    ));
+    assert!(stderr
+        .contains(r#"unconstrained fn "test_should_never_revert" is missing"#));
 }
 
 #[test]

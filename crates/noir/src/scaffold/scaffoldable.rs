@@ -1,6 +1,5 @@
 use crate::test_structure::{Root, SetupHook, TestFunction};
 
-
 pub(crate) trait Scaffoldable {
     fn scaffold(&self, generate_setup_hooks: bool) -> String;
 }
@@ -54,3 +53,197 @@ impl Scaffoldable for SetupHook {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skip_modifier_scaffold() {
+        let root = Root {
+            tests: vec![
+                TestFunction {
+                    name: String::from("test_should_never_revert"),
+                    expect_fail: false,
+                    setup_hooks: vec![],
+                    actions: vec![
+                        "It should never revert.".to_string(),
+                    ],
+                },
+                TestFunction {
+                    name: "test_when_first_arg_is_smaller_than_second_arg".to_string(),
+                    expect_fail: false,
+                    setup_hooks: vec![
+                        SetupHook {
+                            name: "when_first_arg_is_smaller_than_second_arg".to_string(),
+                        },
+                    ],
+                    actions: vec![
+                        "It should match the result of `keccak256(abi.encodePacked(a,b))`.".to_string(),
+                    ],
+                },
+                TestFunction {
+                    name: "test_when_first_arg_is_zero".to_string(),
+                    expect_fail: false,
+                    setup_hooks: vec![
+                        SetupHook {
+                            name: "when_first_arg_is_smaller_than_second_arg".to_string(),
+                        },
+                    ],
+                    actions: vec![
+                        "It should do something.".to_string(),
+                    ],
+                },
+                TestFunction {
+                    name: "test_when_first_arg_is_bigger_than_second_arg".to_string(),
+                    expect_fail: false,
+                    setup_hooks: vec![],
+                    actions: vec![
+                        "It should match the result of `keccak256(abi.encodePacked(b,a))`.".to_string(),
+                    ],
+                },
+            ],
+            setup_hooks: vec![
+                SetupHook {
+                    name: "when_first_arg_is_smaller_than_second_arg".to_string(),
+                },
+            ]
+        };
+        let out = root.scaffold(false);
+
+        assert!(out.contains(
+            "
+#[test]
+unconstrained fn test_should_never_revert() {
+    // It should never revert.
+}
+"
+        ));
+        assert!(out.contains(
+            "
+#[test]
+unconstrained fn test_when_first_arg_is_smaller_than_second_arg() {
+    // It should match the result of `keccak256(abi.encodePacked(a,b))`.
+}
+"
+        ));
+        assert!(out.contains(
+            "
+#[test]
+unconstrained fn test_when_first_arg_is_bigger_than_second_arg() {
+    // It should match the result of `keccak256(abi.encodePacked(b,a))`.
+}
+"
+        ));
+        assert!(out.contains(
+            r#"
+#[test]
+unconstrained fn test_when_first_arg_is_zero() {
+    // It should do something.
+}
+"#
+        ));
+        assert!(!out.contains(
+            r#"
+/// Setup hook for condition
+unconstrained fn when_first_arg_is_smaller_than_second_arg() {
+}
+"#
+        ));
+    }
+
+    #[test]
+    fn include_modifier_scaffold() {
+        let root = Root {
+            tests: vec![
+                TestFunction {
+                    name: String::from("test_should_never_revert"),
+                    expect_fail: false,
+                    setup_hooks: vec![],
+                    actions: vec![
+                        "It should never revert.".to_string(),
+                    ],
+                },
+                TestFunction {
+                    name: "test_when_first_arg_is_smaller_than_second_arg".to_string(),
+                    expect_fail: false,
+                    setup_hooks: vec![
+                        SetupHook {
+                            name: "when_first_arg_is_smaller_than_second_arg".to_string(),
+                        },
+                    ],
+                    actions: vec![
+                        "It should match the result of `keccak256(abi.encodePacked(a,b))`.".to_string(),
+                    ],
+                },
+                TestFunction {
+                    name: "test_when_first_arg_is_zero".to_string(),
+                    expect_fail: false,
+                    setup_hooks: vec![
+                        SetupHook {
+                            name: "when_first_arg_is_smaller_than_second_arg".to_string(),
+                        },
+                    ],
+                    actions: vec![
+                        "It should do something.".to_string(),
+                    ],
+                },
+                TestFunction {
+                    name: "test_when_first_arg_is_bigger_than_second_arg".to_string(),
+                    expect_fail: false,
+                    setup_hooks: vec![],
+                    actions: vec![
+                        "It should match the result of `keccak256(abi.encodePacked(b,a))`.".to_string(),
+                    ],
+                },
+            ],
+            setup_hooks: vec![
+                SetupHook {
+                    name: "when_first_arg_is_smaller_than_second_arg".to_string(),
+                },
+            ]
+        };
+        let out = root.scaffold(true);
+
+        assert!(out.contains(
+            "
+#[test]
+unconstrained fn test_should_never_revert() {
+    // It should never revert.
+}
+"
+        ));
+        assert!(out.contains(
+            "
+#[test]
+unconstrained fn test_when_first_arg_is_smaller_than_second_arg() {
+    when_first_arg_is_smaller_than_second_arg();
+    // It should match the result of `keccak256(abi.encodePacked(a,b))`.
+}
+"
+        ));
+        assert!(out.contains(
+            "
+#[test]
+unconstrained fn test_when_first_arg_is_bigger_than_second_arg() {
+    // It should match the result of `keccak256(abi.encodePacked(b,a))`.
+}
+"
+        ));
+        assert!(out.contains(
+            r#"
+#[test]
+unconstrained fn test_when_first_arg_is_zero() {
+    when_first_arg_is_smaller_than_second_arg();
+    // It should do something.
+}
+"#
+        ));
+        assert!(out.contains(
+            r#"
+/// Setup hook for condition
+unconstrained fn when_first_arg_is_smaller_than_second_arg() {
+}
+"#
+        ));
+    }
+}
